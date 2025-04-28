@@ -12,7 +12,7 @@ struct SegmentTree {
   public:
     SegmentTree() : n(0), sz(0) {}
 
-    explicit SegmentTree(Monoid m, int n) : m(m), n(n) {
+    explicit SegmentTree(Monoid m, const int n) : n(n), m(m) {
       sz = 1;
       while (sz < n) sz <<= 1;
       seg.assign(2 * sz, m.e());
