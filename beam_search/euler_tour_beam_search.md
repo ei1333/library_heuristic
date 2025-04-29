@@ -1,127 +1,182 @@
-# Euler Tour Beam Search — ドキュメント
+# `euler_tour_beam_search`
 
-<!-- TOC -->
-- [概要](#概要)
-- [テンプレートパラメータ](#テンプレートパラメータ)
-- [関数シグネチャ](#関数シグネチャ)
-- [引数](#引引数)
-- [戻り値](#戻り値)
-- [例外](#例外)
-- [アルゴリズム概要](#アルゴリズム概要)
-- [計算量](#計算量)
-- [StateType に求められるインターフェース](#statetype-に求められるインターフェース)
-- [使用例](#使用例)
-- [拡張ポイント](#拡張ポイント)
-- [参考文献](#参考文献)
-<!-- /TOC -->
+A generic **beam‑search** routine that combines a traditional fixed–width beam with an _Euler tour_ representation of the search tree.  
+The Euler‑tour data structure allows the algorithm to **reuse prefixes** of partial solutions efficiently while expanding only the newly
+added edges at every depth, saving both time and memory compared to repeatedly rebuilding the entire beam.
 
-## 概要
-`euler_tour_beam_search` は *Euler Tour* 技法で探索木を線形化し、ビームサーチ (Beam Search) と組み合わせて経路探索を高速化する汎用アルゴリズムです。ユーザは `StateType` が定めるインターフェースを実装するだけで、幅優先探索と深さ優先探索の利点を兼ね備えた近似的経路探索を簡潔に利用できます。
+---
 
-## テンプレートパラメータ
-| パラメータ | 説明 |
-|-----------|------|
-| `StateType` | 探索空間を表現するユーザ定義型。後述のインターフェースを実装する必要があります。 |
+## Function template
 
-## 関数シグネチャ
 ```cpp
-template <typename StateType>
-std::vector<typename StateType::Action> euler_tour_beam_search(
-    const StateType &state,
-    size_t           max_turn,
-    size_t           beam_width,
-    size_t           hash_map_capacity = 0);
+template<BeamState State>
+std::vector<typename State::Action>
+euler_tour_beam_search(const State& initial_state,
+                       std::size_t   max_turn,
+                       std::size_t   beam_width,
+                       std::size_t   hash_map_capacity = 0);
 ```
 
-## 引数
-| 名前 | 型 | 説明 |
-|------|----|------|
-| `state` | `const StateType &` | 初期状態を保持するオブジェクト。参照で受け取り、内部で必要に応じてコピーされます。 |
-| `max_turn` | `size_t` | 探索を行う最大ターン数。0 から始まり、`max_turn` 回展開した時点で探索を打ち切ります。 |
-| `beam_width` | `size_t` | ビーム幅。各ターンで保持する候補ノード数の上限です。 |
-| `hash_map_capacity` | `size_t` (省略可) | ハッシュテーブルの初期容量。`0` を指定すると `16 * 3 * beam_width` が自動設定されます。|
+| Parameter | Description |
+|-----------|-------------|
+| `initial_state` | An instance of a user‑defined type that satisfies the **`BeamState`** concept (see below). It should be a _clean_ copy of the root state; the routine will copy and mutate it internally. |
+| `max_turn` | Maximum number of actions (`turns`) to explore. Acts as an upper bound on the solution length. |
+| `beam_width` | Maximum number of partial states kept at each depth. A larger value increases accuracy but costs more time and memory. |
+| `hash_map_capacity` | Capacity of the internal open‑addressing hash table used for duplicate detection. When `0` (default) it is set to `16 × 3 × beam_width`, which is enough for most tasks. |
 
-## 戻り値
-`std::vector<typename StateType::Action>` — 発見された行動列 (パス)。
+### Return value
+A `std::vector<Action>` containing:
 
-* 終端ノードが見つかった場合: そのターンまでの行動列を返します。
-* `max_turn` 到達などで探索を打ち切った場合: 現在の候補の中で評価値が最良のノードまでの行動列を返します。
-* 候補が存在しない場合: 空のベクタを返します。
+* the **first finished path** discovered (if any state reports _finished_ during search), or  
+* the **best scoring path** among the surviving beam when the depth limit `max_turn` is reached, or  
+* an **empty vector** when the root state cannot be expanded.
 
-## 例外
-本関数は直接例外を送出しません。ただし `StateType` の実装やユーザ定義コンテナが例外を送出した場合はそのまま伝搬します。また、`assert` によりデバッグ時に不正使用を検出します。(例: ビームが空の状態で `get_best_candidate` を呼び出すなど)
+The path is expressed as a sequence of the user‑defined `Action` objects.
 
-## アルゴリズム概要
-1. **EulerTourTree** — 探索木を *Euler Tour* (行きがけ/帰りがけ) で線形表現し、パス復元と局所更新を高速化します。
-2. **BeamSelector** — セグメントツリーで *最悪コスト* の置換を \(O(\log B)\) で行い、同一ハッシュの重複を排除します (\(B = \) `beam_width`)。
-3. **メインループ**
-   1. `EulerTourTree::dfs` で 1 ターン展開し、`BeamSelector::push` で候補集合を更新。
-   2. 終端ノードが存在すれば即座にパスを復元して返却。
-   3. 候補が空の場合は失敗 (空ベクタ) を返却。
-   4. `turn + 1 == max_turn` なら評価値が最良のノードを用いてパスを返却。
-   5. `EulerTourTree::update` でツリーを更新して次ターンへ。
+---
 
-## 計算量
-- **時間**: \(O(\text{max\_turn} \times (B \times C_{expand} + \log B))\)
-  - \(C_{expand}\) は `StateType::expand` 1 回あたりの候補数と評価計算コストに依存します。
-- **空間**: \(O(B)\) — ビーム幅に比例。ハッシュ表と Euler Tour 配列も同オーダーです。
+## Requirements – the `BeamState` concept
 
-## StateType に求められるインターフェース
 ```cpp
-struct StateType {
-  using Action;    // 行動の型
-  using Evaluator; // 評価器の型
-  using Hash;      // ハッシュ値の型
-  struct Candidate { int parent; Action action; Evaluator eval; Hash hash; };
+template<class State>
+concept BeamState =
+    Evaluator<typename State::Evaluator> && /* see below */
+    /*---------------------------------------------------*/
+    requires(State&       s,
+             const State& cs,
+             typename State::Action     a,
+             typename State::Evaluator  e,
+             typename State::Hash       h,
+             std::function<void(const typename State::Action&,
+                                const typename State::Evaluator&,
+                                const typename State::Hash&,
+                                bool)> push)
+{
+    /*  Types  */
+    typename State::Action;       // describes a single move
+    typename State::Evaluator;    // contains objective information
+    typename State::Hash;         // used for duplicate detection
 
-  // 初期ノードを生成
-  std::tuple<Action, Evaluator, Hash> make_initial_node() const;
+    /*  Root node ------------------------------------------------------------*/
+    { cs.make_initial_node() }
+        -> std::same_as<std::pair<typename State::Evaluator,
+                                  typename State::Hash>>;
 
-  // action を仮適用した状態で子ノードを列挙し push_candidate を呼ぶ
-  void expand(const Action &action,
-              const Evaluator &eval,
-              const Hash &hash,
-              const std::function<void(const Action &, const Evaluator &, const Hash &, bool)> &push_candidate) const;
+    /*  Frontier expansion ---------------------------------------------------*/
+    { cs.expand(e, h, push) } -> std::same_as<void>;
+        // Call `push(action, evaluator, hash, finished)` for each child.
 
-  // action を状態に適用
-  void apply(const Action &action);
-
-  // 直前に apply した action をロールバック
-  void rollback(const Action &action);
-};
-```
-### Evaluator の要件
-```cpp
-struct Evaluator {
-  using Cost = /* 符号付き算術型 */;
-  Cost evaluate() const; // 小さい値ほど良いとみなす
+    /*  State mutation -------------------------------------------------------*/
+    { s.apply(a)   } -> std::same_as<void>;
+    { s.rollback(a)} -> std::same_as<void>;
 };
 ```
 
-## 使用例
-```cpp
-#include "beam_search.hpp"
-#include <iostream>
+### `Evaluator` concept
+`State::Evaluator` must in turn satisfy:
 
-struct MyState : BeamSearch::IBeamState<MyAction, MyEvaluator, MyHash> {
-  // …StateType のインターフェースを実装…
+```cpp
+template<class E>
+concept Evaluator =
+    requires(const E& e) {
+        typename E::Cost;              // totally ordered
+        { e.evaluate() } -> std::same_as<typename E::Cost>;
+    };
+```
+
+The beam treats **smaller** costs as **better** scores.  
+Typical implementations store cumulative cost (for minimisation) or
+negative reward (for maximisation) inside the evaluator.
+
+---
+
+## Algorithm outline
+
+1. **EulerTourTree** keeps an Euler tour of the implicit search tree.  
+   It can _rewind_ (`rollback`) and _fast‑forward_ (`apply`) moves in \(O(1)\) and
+   reconstruct any prefix of a path without storing the entire tree.
+2. **BeamSelector** maintains:
+   * a fixed‑size vector of candidates (`beam_width`);
+   * an **arg‑max segment tree** to locate the worst candidate in \(O(\log w)\);
+   * an open‑addressing `HashMap` to deduplicate states by `Hash`.
+3. For each `turn` in `[0, max_turn)`:
+   1. Expand the current leaves with `State::expand` and push children.
+   2. If any child is marked `finished == true`, reconstruct the path via the
+      Euler tour and **terminate early**.
+   3. Otherwise keep the top‑`beam_width` candidates, update the tour,
+      clear the selector and continue.
+4. After `max_turn` steps, return the best surviving candidate.
+
+The procedure touches each expanded node **exactly once** and never copies
+large states thanks to `apply/rollback`, giving it excellent cache behaviour.
+
+---
+
+## Complexity
+
+| Measure | Worst‑case |
+|---------|-----------|
+| **Time** | \(O(	ext{beam\_width} 	imes b 	imes 	ext{max\_turn})\) where \(b\) is the average branching factor during `expand`. |
+| **Memory** | \(O(	ext{beam\_width})\) states + \(O(	ext{beam\_width})\) auxiliary tables. |
+
+---
+
+## Example – grid search
+
+```cpp
+struct GridState {
+    /* …define Action, Evaluator, Hash… */
+
+    std::pair<Evaluator, Hash> make_initial_node() const { /* … */ }
+
+    void expand(const Evaluator& e,
+                const Hash& h,
+                auto push) const {
+        for (const Action& a : legal_moves()) {
+            Evaluator ne = e;
+            Hash      nh = h;
+
+            /* update cost & hash */
+            bool finished = goal_reached();
+
+            push(a, ne, nh, finished);
+        }
+    }
+
+    void apply(const Action& a)    { /* mutate */ }
+    void rollback(const Action& a) { /* undo   */ }
 };
 
+/*-----------------------------------------------------------*/
 int main() {
-  MyState init_state(/* … */);
-  size_t max_turn   = 30;
-  size_t beam_width = 64;
+    GridState root(/*…*/);
+    auto best_path = BeamSearch::euler_tour_beam_search(
+                        root,
+                        /*max_turn =*/ 200,
+                        /*beam_width=*/ 1000);
 
-  auto best_actions = BeamSearch::euler_tour_beam_search(init_state, max_turn, beam_width);
-  for (const auto &a : best_actions) std::cout << a << "\n";
+    for (auto&& a : best_path) std::cout << a << ' ';
+    std::cout << std::endl;
 }
 ```
 
-## 拡張ポイント
-- **ハッシュ関数の最適化** — `StateType::Hash` と `HashMap` を置き換えることでメモリ効率や衝突率を改善できます。
-- **動的ビーム幅** — `BeamSelector` を改造してビーム幅をターンごとに調整するアプローチも可能です。
-- **評価関数の工夫** — タスク固有のヒューリスティックを `Evaluator::evaluate()` に実装すると探索性能が向上します。
+---
 
-## 参考文献
-- R. Korf, “Depth-first iterative-deepening: An optimal admissible tree search,” *Artificial Intelligence*, 1985.
-- Competitive Programming Library for Beam Search, 2025.
+## Tips
+
+* **Tune `beam_width`** empirically. Doubling the width rarely doubles runtime
+  (branching factor diminishes due to pruning).
+* Provide a **strong heuristic** in `Evaluator::evaluate()`; the beam relies
+  heavily on it to prune bad branches.
+* Keep `Hash` **lightweight** (e.g. Zobrist hashing) – it is used on every push.
+
+---
+
+## License
+
+The implementation in `beam_search.hpp` is released under the MIT license⁠⁽¹⁾.  
+Feel free to copy, modify and redistribute it in your own projects.
+
+---
+
+> ⁽¹⁾ Replace this line with the actual license notice of the file if it differs.

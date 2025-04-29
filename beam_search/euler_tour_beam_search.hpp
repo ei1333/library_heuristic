@@ -10,10 +10,11 @@ concept Evaluator = requires(const E &e)
 template<class State>
 concept BeamState =
     Evaluator<typename State::Evaluator> &&
-    requires(State& s, const State& cs,
-             typename State::Action& a,
-             typename State::Evaluator& e,
-             typename State::Hash& h,
+    requires(State &s,
+             const State &cs,
+             typename State::Action &a,
+             typename State::Evaluator &e,
+             typename State::Hash &h,
              function<void(const typename State::Action &,
                            const typename State::Evaluator &,
                            const typename State::Hash &,
@@ -256,10 +257,10 @@ struct EulerTourTree {
 };
 
 template<BeamState State>
-vector<typename State::Action> beam_search(const State &state,
-                                           const size_t max_turn,
-                                           size_t beam_width,
-                                           size_t hash_map_capacity = 0) {
+vector<typename State::Action> euler_tour_beam_search(const State &state,
+                                                      const size_t max_turn,
+                                                      size_t beam_width,
+                                                      size_t hash_map_capacity = 0) {
   if (hash_map_capacity == 0) {
     hash_map_capacity = 16 * 3 * beam_width;
   }
