@@ -1,17 +1,11 @@
 template<class Key, class T>
 struct HashMap {
-  explicit HashMap(size_t n_) {
-    if (n_ % 2 == 0) {
-      ++n_;
-    }
-    n = n_;
-    valid.resize(n, false);
-    data.resize(n);
+  explicit HashMap(size_t n) : n(n), generation(1), valid(n), data(n) {
   }
 
   [[nodiscard]] pair<bool, int> get_index(Key key) const {
     Key i = key % n;
-    while (valid[i]) {
+    while (valid[i] == generation) {
       if (data[i].first == key) {
         return {true, i};
       }
@@ -23,21 +17,21 @@ struct HashMap {
   }
 
   void set(int i, Key key, T value) {
-    valid[i] = true;
+    valid[i] = generation;
     data[i] = {key, value};
   }
 
   [[nodiscard]] T get(int i) const {
-    assert(valid[i]);
     return data[i].second;
   }
 
   void clear() {
-    fill(valid.begin(), valid.end(), false);
+    ++generation;
   }
 
   private:
     size_t n;
-    vector<bool> valid;
+    size_t generation;
+    vector<int> valid;
     vector<pair<Key, T> > data;
 };
