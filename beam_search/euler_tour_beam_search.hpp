@@ -1,27 +1,34 @@
 namespace BeamSearch {
-template<typename ActionType, typename EvaluatorType, typename HashType>
-struct IBeamState {
-  virtual ~IBeamState() = default;
-  using Action = ActionType;
-  using Evaluator = EvaluatorType;
-  using Hash = HashType;
+template<class E>
+concept Evaluator = requires(const E &e)
+    {
+      typename E::Cost;
+      { e.evaluate() } -> same_as<typename E::Cost>;
+    } &&
+    totally_ordered<typename E::Cost>;
 
-  [[nodiscard]] virtual tuple<Action, Evaluator, Hash> make_initial_node() const = 0;
-  virtual void expand(const Action &action,
-                      const Evaluator &eval,
-                      const Hash &hash,
-                      const function<void(const Action &, const Evaluator &, const Hash &, bool)> &push_candidate) const
-  = 0;
-  virtual void apply(const Action &action) = 0;
-  virtual void rollback(const Action &action) = 0;
+template<class State>
+concept BeamState =
+    Evaluator<typename State::Evaluator> &&
+    requires(State& s, const State& cs,
+             typename State::Action& a,
+             typename State::Evaluator& e,
+             typename State::Hash& h,
+             function<void(const typename State::Action &,
+                           const typename State::Evaluator &,
+                           const typename State::Hash &,
+                           bool)> push)
+    {
+      typename State::Action;
+      typename State::Evaluator;
+      typename State::Hash;
 
-  struct Candidate {
-    int parent;
-    Action action;
-    Evaluator eval;
-    Hash hash;
-  };
-};
+      { cs.make_initial_node() } -> same_as<pair<typename State::Evaluator, typename State::Hash> >;
+      { cs.expand(e, h, push) } -> same_as<void>;
+      { s.apply(a) } -> same_as<void>;
+      { s.rollback(a) } -> same_as<void>;
+    } &&
+    integral<typename State::Hash>;
 
 template<typename StateType>
 struct BeamSelector {
@@ -29,7 +36,13 @@ struct BeamSelector {
   using Evaluator = typename StateType::Evaluator;
   using Cost = typename Evaluator::Cost;
   using Hash = typename StateType::Hash;
-  using Candidate = typename StateType::Candidate;
+
+  struct Candidate {
+    int parent;
+    Action action;
+    Evaluator eval;
+    Hash hash;
+  };
 
   vector<Candidate> finished_candidates, candidates;
   using T = pair<Cost, int>;
@@ -130,19 +143,18 @@ struct EulerTourTree {
   using Action = typename StateType::Action;
   using Evaluator = typename StateType::Evaluator;
   using Hash = typename StateType::Hash;
-  using Candidate = typename StateType::Candidate;
+  using Candidate = typename BeamSelector<StateType>::Candidate;
 
   using Edge = pair<int, Action>;
   using Vertex = pair<Evaluator, Hash>;
 
-  explicit EulerTourTree(StateType state, int beam_width) : state(move(state)), buckets(beam_width) {
+  explicit EulerTourTree(StateType state, const int beam_width) : state(move(state)), buckets(beam_width) {
   }
 
   void dfs(BeamSelector<StateType> &selector) {
     if (curr_tour.empty()) {
-      const auto &[action, eval, hash] = state.make_initial_node();
-      state.expand(action,
-                   eval,
+      const auto &[eval, hash] = state.make_initial_node();
+      state.expand(eval,
                    hash,
                    [&](const Action &a, const Evaluator &e, const Hash &h, bool f) {
                      return selector.push(a, e, h, 0, f);
@@ -154,8 +166,7 @@ struct EulerTourTree {
       if (i >= 0) {
         state.apply(action);
         const auto &[eval, hash] = leaves[i];
-        state.expand(action,
-                     eval,
+        state.expand(eval,
                      hash,
                      [&](const Action &a, const Evaluator &e, const Hash &h, bool f) {
                        return selector.push(a, e, h, i, f);
@@ -244,17 +255,17 @@ struct EulerTourTree {
   vector<Vertex> leaves;
 };
 
-template<typename StateType>
-vector<typename StateType::Action> euler_tour_beam_search(const StateType &state,
-                                               const size_t max_turn,
-                                               size_t beam_width,
-                                               size_t hash_map_capacity = 0) {
+template<BeamState State>
+vector<typename State::Action> beam_search(const State &state,
+                                           const size_t max_turn,
+                                           size_t beam_width,
+                                           size_t hash_map_capacity = 0) {
   if (hash_map_capacity == 0) {
     hash_map_capacity = 16 * 3 * beam_width;
   }
 
-  EulerTourTree<StateType> tree(state, beam_width);
-  BeamSelector<StateType> selector(beam_width, hash_map_capacity);
+  EulerTourTree<State> tree(state, beam_width);
+  BeamSelector<State> selector(beam_width, hash_map_capacity);
 
   for (size_t turn = 0; turn < max_turn; turn++) {
     tree.dfs(selector);
@@ -273,7 +284,6 @@ vector<typename StateType::Action> euler_tour_beam_search(const StateType &state
 
     if (turn + 1 == max_turn) {
       auto best = selector.get_best_candidate();
-      cerr << best.eval.evaluate() << endl;
       auto path = tree.restore(best.parent, turn + 1);
       path.emplace_back(best.action);
       return path;
