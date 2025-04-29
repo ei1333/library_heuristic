@@ -1,7 +1,16 @@
-# `euler_tour_beam_search` 日本語ドキュメント
+# `euler_tour_beam_search` 日本語ドキュメント（更新版）
 
-固定幅ビームサーチに **Euler ツアー木** を組み合わせた汎用探索ルーチンです。  
-Euler ツアー表現を使うことで、部分解の **共通接頭辞** を効率よく再利用し、各ターンで追加された枝だけを拡張します。これにより、ビーム幅を大きくしても時間・メモリの増加を抑えられます。
+固定幅ビームサーチに **Euler ツアー木** を組み合わせた汎用探索アルゴリズムです。
+
+> **変更点 (2025‑04‑29)**  
+> * `make_initial_node()` の戻り値が **`std::tuple<Action, Evaluator, Hash>`** になりました。  
+> * `expand()` の第一引数に「親からこの状態へ到達した **Action**」が渡されます。  
+>   ```cpp
+>   void expand(const Action& parent_action,
+>               const Evaluator& eval,
+>               const Hash& h,
+>               Push push) const;
+>   ```
 
 ---
 
@@ -18,19 +27,14 @@ euler_tour_beam_search(const State& initial_state,
 
 | 引数 | 説明 |
 |------|------|
-| `initial_state` | **`BeamState`** コンセプトを満たすユーザ定義型のインスタンス（後述）。探索のルートとなるクリーンな状態を渡します。 |
-| `max_turn` | 探索する最大手数。これ以上深いノードは展開しません。 |
-| `beam_width` | 各深さで保持する候補数。大きくすると精度は上がりますが計算量も増えます。 |
-| `hash_map_capacity` | 重複検出用ハッシュ表の容量。`0` の場合は `16 × 3 × beam_width` に自動設定されます。 |
-
-### 戻り値
-- 途中で **`finished == true`** のノードが見つかった場合 → その最短経路  
-- 見つからなければ深さ `max_turn` 時点で **最も良いコスト** の経路  
-- 展開可能なノードが無い場合 → 空ベクタ
+| `initial_state` | **`BeamState`** コンセプトを満たすルート状態 |
+| `max_turn` | 最大手数（深さ上限） |
+| `beam_width` | 各深さで保持する候補数 |
+| `hash_map_capacity` | 重複検出ハッシュ表の容量（`0` で自動設定） |
 
 ---
 
-## `BeamState` コンセプト
+## `BeamState` コンセプト（更新）
 
 ```cpp
 template<class State>
@@ -45,18 +49,20 @@ requires(State& s,
                             const typename State::Evaluator&,
                             const typename State::Hash&,
                             bool)> push) {
-    /* 型 */
+    /* 型定義 */
     typename State::Action;
     typename State::Evaluator;
     typename State::Hash;
 
-    /* ルートノード生成 */
+    /* ルートノード */
     { cs.make_initial_node() }
-        -> std::same_as<std::pair<typename State::Evaluator,
-                                  typename State::Hash>>;
+        -> std::same_as<std::tuple<typename State::Action,
+                                   typename State::Evaluator,
+                                   typename State::Hash>>;
 
     /* 子ノード列挙 */
-    { cs.expand(e, h, push) } -> std::same_as<void>;
+    { cs.expand(a, e, h, push) } -> std::same_as<void>;
+      // a は「親→現在」への Action。不要なら無視してよい。
 
     /* 状態遷移／巻き戻し */
     { s.apply(a)    } -> std::same_as<void>;
@@ -64,90 +70,18 @@ requires(State& s,
 };
 ```
 
-### `Evaluator` コンセプト
-```cpp
-template<class E>
-concept Evaluator = requires(const E& e) {
-    typename E::Cost;                 // 全順序付き型
-    { e.evaluate() } -> std::same_as<typename E::Cost>;
-};
-```
-ビームサーチでは **値が小さいほど良い**（最小化）とみなします。  
-最大化問題なら「負の報酬」をコストとして返すなどしてください。
+`Evaluator` の要件は従来と同じ（コストの最小化）。
 
 ---
 
-## アルゴリズム概要
+## 移行ガイド
 
-1. **EulerTourTree**  
-   - 探索木を Euler ツアー列として保持  
-   - `apply` / `rollback` で O(1) で経路を進めたり戻したり
-2. **BeamSelector**  
-   - 固定長ベクタで候補を管理  
-   - セグメント木で **最悪候補** を O(log w) で取得  
-   - オープンアドレス法ハッシュで重複削除
-3. 各ターンで  
-   1. 葉を展開 (`State::expand`)  
-   2. `finished` が出たら経路を復元して即終了  
-   3. ビーム幅まで絞り込み、ツアーを更新  
-4. 深さ上限到達時は最良候補を返す
+| 旧実装 | 新実装 | 補足 |
+|--------|--------|------|
+| `auto [eval, hash] = make_initial_node();` | `auto [root_action, eval, hash] = make_initial_node();` | `root_action` は多くのケースでデフォルト値 (`Action{}`) となります。 |
+| `expand(eval, hash, push);` | `expand(parent_action, eval, hash, push);` | 第一引数は「この状態に来るのに使った Action」。不要なら無視可。 |
 
 ---
 
-## 計算量
-
-| 指標 | オーダー |
-|------|---------|
-| 時間 | \(O(	ext{beam\_width} × b × 	ext{max\_turn})\) （b: 平均分岐数） |
-| メモリ | \(O(	ext{beam\_width})\) |
-
----
-
-## ミニ例（グリッド探索）
-
-```cpp
-struct GridState {
-    /* Action, Evaluator, Hash などを定義 */
-
-    std::pair<Evaluator, Hash> make_initial_node() const { … }
-
-    void expand(const Evaluator& e, const Hash& h, auto push) const {
-        for (const Action& a : legal_moves()) {
-            Evaluator ne = e;
-            Hash      nh = h;
-            /* コスト＆ハッシュ更新 */
-
-            bool finished = goal_reached();
-            push(a, ne, nh, finished);
-        }
-    }
-
-    void apply(const Action& a)    { … }
-    void rollback(const Action& a) { … }
-};
-
-int main() {
-    GridState root;
-    auto path = BeamSearch::euler_tour_beam_search(root, 200, 1000);
-
-    for (auto&& a : path) std::cout << a << ' ';
-    std::cout << std::endl;
-}
-```
-
----
-
-## TIPS
-
-* `beam_width` は実験的に調整しましょう。幅を 2 倍にしても必ずしも実行時間が 2 倍になるわけではありません。
-* `Evaluator::evaluate()` には **強いヒューリスティック** を。ビームサーチの性能はここで決まります。
-* `Hash` は **軽量** に（例: Zobrist ハッシュ）。毎回 `push` で計算されます。
-
----
-
-## ライセンス
-
-この実装（`beam_search.hpp`）は MIT ライセンス⁠⁽¹⁾ です。  
-商用・非商用を問わず自由にご利用ください。
-
-> ⁽¹⁾ 実際のソースに別のライセンス表記がある場合はそちらを優先してください。
+アルゴリズムの流れ・計算量・チューニング方法は変更ありません。  
+英語版ドキュメントも併せてご覧ください。

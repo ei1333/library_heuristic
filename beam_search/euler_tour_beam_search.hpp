@@ -24,8 +24,10 @@ concept BeamState =
       typename State::Evaluator;
       typename State::Hash;
 
-      { cs.make_initial_node() } -> same_as<pair<typename State::Evaluator, typename State::Hash> >;
-      { cs.expand(e, h, push) } -> same_as<void>;
+      {
+        cs.make_initial_node()
+      } -> same_as<tuple<typename State::Action, typename State::Evaluator, typename State::Hash> >;
+      { cs.expand(a, e, h, push) } -> same_as<void>;
       { s.apply(a) } -> same_as<void>;
       { s.rollback(a) } -> same_as<void>;
     } &&
@@ -154,8 +156,9 @@ struct EulerTourTree {
 
   void dfs(BeamSelector<StateType> &selector) {
     if (curr_tour.empty()) {
-      const auto &[eval, hash] = state.make_initial_node();
-      state.expand(eval,
+      const auto &[action, eval, hash] = state.make_initial_node();
+      state.expand(action,
+                   eval,
                    hash,
                    [&](const Action &a, const Evaluator &e, const Hash &h, bool f) {
                      return selector.push(a, e, h, 0, f);
@@ -167,7 +170,8 @@ struct EulerTourTree {
       if (i >= 0) {
         state.apply(action);
         const auto &[eval, hash] = leaves[i];
-        state.expand(eval,
+        state.expand(action,
+                     eval,
                      hash,
                      [&](const Action &a, const Evaluator &e, const Hash &h, bool f) {
                        return selector.push(a, e, h, i, f);
