@@ -7,6 +7,7 @@ This header‑only utility provides a generic simulated‑annealing loop that ca
 - **Type‑safe:** leverages C++20 Concepts to catch interface mismatches at compile time.  
 - **Header‑only:** simply include the header in your project, no separate build step required.  
 - **Deterministic duration:** runtime is limited by a wall‑clock timeout rather than an iteration counter.
+- **Customisable granularity:** the `step` parameter controls how many `update()` calls occur between successive time checks.
 
 ## Requirements
 - A C++20 compliant compiler (e.g. GCC 11+, Clang 14+, MSVC 19.30+).
@@ -47,11 +48,12 @@ void simulated_annealing(State& state,
 | `start_temp`       | Initial temperature. |
 | `end_temp`         | Final temperature. |
 | `end_milliseconds` | Wall‑clock time budget in **milliseconds**. |
+| `step`             | Number of `state.update()` calls between clock checks (default 256). |
 
 Internally the loop  
 1. tracks elapsed time with a `Timer`,  
 2. linearly interpolates the temperature between `start_temp` and `end_temp`,  
-3. calls `state.update()` 256 times per outer iteration using  
+3. calls `state.update()` `step` times per outer iteration using  
    `delta = temp * log(rng.probability())`.
 
 #### Expected behaviour of `update`
