@@ -18,20 +18,25 @@ concept MiniMaxState =
     totally_ordered<typename State::Cost>;
 
 template<MiniMaxState State>
-pair<typename State::Action, typename State::Cost> minimax(State &state, const int depth) {
+pair<typename State::Action, typename State::Cost> minimax(State &state, const size_t depth) {
   using Action = typename State::Action;
   using Evaluator = typename State::Evaluator;
   using Cost = typename Evaluator::Cost;
-  if (depth == 0 or state.is_finished()) {
-    return state.eval.evaluate();
-  }
+  
+  assert(not state.is_finished());
+
   vector<Action> candidates;
   state.expand([&](const Action &a) { candidates.emplace_back(a); });
   Cost best_score = numeric_limits<Cost>::min();
   Action best_action;
   for (const auto &action : candidates) {
     state.apply(action);
-    auto score = -minimax(state, depth - 1).second;
+    Cost score;
+    if (depth <= 1 or state.is_finished()) {
+      score = -state.evaluate();
+    } else {
+      score = -minimax(state, depth - 1).second;
+    }
     if (score > best_score) {
       best_score = score;
       best_action = action;
