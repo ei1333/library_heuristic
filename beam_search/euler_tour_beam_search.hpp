@@ -60,7 +60,7 @@ struct BeamSelector {
       return a;
     }
     static constexpr S e() {
-      return {numeric_limits<Cost>::min(), -1};
+      return {-numeric_limits<Cost>::max(), -1};
     }
   };
   SegmentTree<monoid> seg;

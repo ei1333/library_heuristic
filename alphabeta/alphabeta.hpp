@@ -1,6 +1,6 @@
-namespace MiniMax {
+namespace AlphaBeta {
 template<class State>
-concept MiniMaxState =
+concept AlphaBeta =
     requires(State &s,
              const State &cs,
              typename State::Action &a,
@@ -17,8 +17,8 @@ concept MiniMaxState =
 } &&
 totally_ordered<typename State::Cost>;
 
-template<MiniMaxState State>
-typename State::Cost get_best_score(State &state, const size_t depth) {
+template<AlphaBeta State>
+typename State::Cost get_best_score(State &state, typename State::Cost alpha, typename State::Cost beta, const size_t depth) {
   using Action = typename State::Action;
   using Cost = typename State::Cost;
 
@@ -33,19 +33,21 @@ typename State::Cost get_best_score(State &state, const size_t depth) {
     return state.evaluate();
   }
 
-  Cost best_score = numeric_limits<Cost>::min();
   for (const auto &action : candidates) {
     state.apply(action);
-    Cost score = -get_best_score(state, depth - 1);
-    if (score > best_score) {
-      best_score = score;
+    Cost score = -get_best_score(state, -beta, -alpha, depth - 1);
+    if (score > alpha) {
+      alpha = score;
     }
     state.rollback(action);
+    if (alpha >= beta) {
+      return alpha;
+    }
   }
-  return best_score;
+  return alpha;
 }
 
-template<MiniMaxState State>
+template<AlphaBeta State>
 typename State::Action get_best_action(State &state, const size_t depth) {
   using Action = typename State::Action;
   using Cost = typename State::Cost;
@@ -53,13 +55,14 @@ typename State::Action get_best_action(State &state, const size_t depth) {
   vector<Action> candidates;
   state.expand([&](const Action &a) { candidates.emplace_back(a); });
   assert(not candidates.empty());
-  Cost best_score = -numeric_limits<Cost>::max();
+  Cost alpha = -numeric_limits<Cost>::max();
+  Cost beta = numeric_limits<Cost>::max();
   Action best_action;
   for (const auto &action : candidates) {
     state.apply(action);
-    Cost score = -get_best_score(state, depth - 1);
-    if (score > best_score) {
-      best_score = score;
+    Cost score = -get_best_score(state, -beta, -alpha, depth - 1);
+    if (score > alpha) {
+      alpha = score;
       best_action = action;
     }
     state.rollback(action);
